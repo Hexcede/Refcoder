@@ -56,8 +56,17 @@ end
 
 local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static" }
 
-type EncodeState = {References: {[any]: number}, Encodings: {[number]: any}, Top: number; Statics: {[any]: any}}
-type DecodeState = {Decodings: {[number]: any}, Encodings: {[number]: any}, Statics: {[any]: any}}
+type EncodeState = {
+	References: {[any]: number};
+	Encodings: {[number]: any};
+	Top: number;
+	Statics: {[any]: any};
+}
+type DecodeState = {
+	Decodings: {[number]: any};
+	Encodings: {[number]: any};
+	Statics: {[any]: any};
+}
 
 local encode
 local function encodeValue(value: any, state: EncodeState, isStatic: boolean?)
