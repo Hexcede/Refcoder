@@ -210,7 +210,7 @@ function Refcoder.encode<K, V>(data, statics: {[K]: V}?)
 	-- Reserve a refId for the data
 	local refId = getRefId(data, state)
 	if refId == 0 then
-		state.Encodings[1] = encodeValue(0/0, state, true)
+		state.Encodings[state.Top] = encodeValue(0/0, state, true)
 	end
 	return encodeStringArray(state.Encodings)
 end
