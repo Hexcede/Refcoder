@@ -176,9 +176,8 @@ local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
 end
 
 function encode(value: any, state: EncodeState, isStatic: boolean?)
-	local typeIndex = table.find(VALID_TYPES, typeof(value))
-	if not typeIndex then return end
-	
+	local typeIndex = table.find(VALID_TYPES, typeof(value)) or table.find(VALID_TYPES, type(value))
+
 	local statics = state.Statics
 	if isStatic and statics[value] ~= nil then
 		return encodeRefId(getRefId(statics[value], state, true)), TYPE_STATIC
@@ -266,7 +265,7 @@ local function decode(refId: number, encoded: string, state: DecodeState)
 		-- Grab the data stored for the target ref directly, and decode it
 		return decode(refId, state.Encodings[encodingId], state)
 	elseif valueType == "symbol" then
-		local symbol = SYMBOLS[value]
+		local symbol = SYMBOLS[decodeByRefId(decodeRefId(value), state)]
 		if symbol == SYMBOL_NAN then return 0/0 end
 		return symbol
 	end
