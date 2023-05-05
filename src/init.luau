@@ -71,7 +71,8 @@ local function Symbol(identifier: any)
 	return symbol
 end
 
-local NAN_REF_ID = 0
+local SYMBOL_NAN = Symbol("nan")
+
 type EncodeState = {
 	References: {[any]: number};
 	Encodings: {[number]: any};
@@ -114,9 +115,13 @@ local function storeDataUnique(state: EncodeState, refId: number, encoded: strin
 end
 
 local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
-	-- Special ref IDs
-	if value ~= value then return NAN_REF_ID end
+	-- nil
 	if value == nil then return nil end
+
+	-- NaN
+	if value ~= value then
+		value = SYMBOL_NAN
+	end
 
 	-- Look for an existing ID by reference
 	local refId = state.References[value]
@@ -216,15 +221,13 @@ local function decode(refId: number, encoded: string, state: DecodeState)
 		return decode(refId, state.Encodings[encodingId], state)
 	elseif valueType == "symbol" then
 		local symbol = SYMBOLS[value]
+		if symbol == SYMBOL_NAN then return 0/0 end
 		return symbol
 	end
 	return nil
 end
 
 function decodeByRefId(refId: number, state: DecodeState)
-	-- Special ref IDs
-	if refId == NAN_REF_ID then return 0/0 end
-	
 	-- Look up the decoded value, and return it if it already exists
 	local decoded = state.Decodings[refId]
 	if decoded ~= nil then return decoded end
@@ -257,12 +260,6 @@ function Refcoder.encode<K, V>(data, statics: {[K]: V}?)
 		Top = 1;
 		Statics = statics or {};
 	}
-	
-	-- Reserve a refId for the data
-	local refId = getRefId(data, state)
-	if refId == 0 then
-		state.Encodings[state.Top] = encodeValue(encode(0/0, state, true))
-	end
 	return encodeStringArray(state.Encodings)
 end
 
