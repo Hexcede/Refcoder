@@ -8,8 +8,8 @@ local function encodeRefId(refId: number)
 	local refSize = minByteSize(math.max(0, refId))
 	return string.pack(`<BI{refSize}`, refSize, refId)
 end
-local function decodeRefId(data: string)
-	local refSize, pointer = string.unpack("<B", data)
+local function decodeRefId(data: string, readStart: number?)
+	local refSize, pointer = string.unpack("<B", data, readStart)
 	return string.unpack(`I{refSize}`, data, pointer)
 end
 local function encodeRefArray(refs: {number})
@@ -57,6 +57,7 @@ end
 local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static", "copy_of" }
 local TYPE_COPY_OF = assert(table.find(VALID_TYPES, "copy_of"))
 
+local NAN_REF_ID = 0
 type EncodeState = {
 	References: {[any]: number};
 	Encodings: {[number]: any};
@@ -76,33 +77,44 @@ local function encodeValue(encoded: string, typeIndex: number)
 	return `{string.pack("<B", typeIndex)}{encoded}`
 end
 
+-- Uses top & increments it by 1
+local function reserveRefId(state: EncodeState)
+	-- Select the next reference ID
+	local refId = state.Top
+	state.Top += 1
+	return refId
+end
+
+-- Stores an encoded value, but checks if it is possible to store a copy_of instead
+local function storeDataUnique(state: EncodeState, refId: number, encoded: string)
+	-- Look for a ref with duplicate data
+	local encodingId = state.EncodingsToRefs[encoded]
+	if encodingId then
+		-- Replace with a copy_of for the encoded data
+		encoded = encodeValue(encodeRefId(encodingId), TYPE_COPY_OF)
+	else
+		-- Store the ref ID of this data
+		state.EncodingsToRefs[encoded] = refId
+	end
+	state.Encodings[refId] = encoded
+end
+
 local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
-	if value ~= value then return 0 end
+	-- Special ref IDs
+	if value ~= value then return NAN_REF_ID end
 	if value == nil then return nil end
 
+	-- Look for an existing ID by reference
 	local refId = state.References[value]
 	if not refId then
-		-- Select the next reference ID
-		refId = state.Top
-		state.Top += 1
+		-- One doesn't exist, so reserve a new one
+		refId = reserveRefId(state)
 
 		-- Insert the encoding & ref ID
 		state.References[value] = refId
 
-		-- Encode the value & pack it
-		local encoded, typeIndex = encode(value, state, isStatic)
-		local packed = encodeValue(encoded, typeIndex)
-
-		-- Look for a ref with duplicate data
-		local encodingId = state.EncodingsToRefs[packed]
-		if encodingId then
-			-- Replace with a copy_of for the encoded data
-			packed = encodeValue(encodeRefId(encodingId), TYPE_COPY_OF)
-		else
-			-- Store the ref ID of this data
-			state.EncodingsToRefs[packed] = refId
-		end
-		state.Encodings[refId] = packed
+		-- Store packed data for the ref ID
+		storeDataUnique(state, refId, encodeValue(encode(value, state, isStatic)))
 	end
 	return refId
 end
@@ -193,8 +205,8 @@ local function decode(refId: number, encoded: string, state: DecodeState)
 end
 
 function decodeByRefId(refId: number, state: DecodeState)
-	-- NaN
-	if refId == 0 then return 0/0 end
+	-- Special ref IDs
+	if refId == NAN_REF_ID then return 0/0 end
 	
 	-- Look up the decoded value, and return it if it already exists
 	local decoded = state.Decodings[refId]
