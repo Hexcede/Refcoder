@@ -114,6 +114,14 @@ local function storeDataUnique(state: EncodeState, refId: number, encoded: strin
 	state.Encodings[refId] = encoded
 end
 
+local function writeRef(refId: number, value: any, state: EncodeState, isStatic: boolean?)
+	-- Insert the encoding & ref ID
+	state.References[value] = refId
+
+	-- Store packed data for the ref ID
+	storeDataUnique(state, refId, encodeValue(encode(value, state, isStatic)))
+end
+
 local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
 	-- nil
 	if value == nil then return nil end
@@ -129,11 +137,8 @@ local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
 		-- One doesn't exist, so reserve a new one
 		refId = reserveRefId(state)
 
-		-- Insert the encoding & ref ID
-		state.References[value] = refId
-
-		-- Store packed data for the ref ID
-		storeDataUnique(state, refId, encodeValue(encode(value, state, isStatic)))
+		-- Write the data at the reserved ref ID
+		writeRef(refId, value, state, isStatic)
 	end
 	return refId
 end
