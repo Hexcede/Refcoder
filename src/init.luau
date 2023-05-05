@@ -102,7 +102,9 @@ local function reserveRefId(state: EncodeState)
 end
 
 -- Stores an encoded value, but checks if it is possible to store a copy_of instead
-local function storeDataUnique(state: EncodeState, refId: number, encoded: string)
+local function storeDataUnique(state: EncodeState, refId: number, encoded: string?)
+	if not encoded then return end
+
 	-- Look for a ref with duplicate data
 	local encodingId = state.EncodingsToRefs[encoded]
 	if encodingId then
