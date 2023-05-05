@@ -72,6 +72,7 @@ local function Symbol(identifier: any)
 end
 
 local SYMBOL_NAN = Symbol("nan")
+local SYMBOL_DATA = Symbol("data")
 
 type EncodeState = {
 	References: {[any]: number};
@@ -262,9 +263,15 @@ function Refcoder.encode<K, V>(data, statics: {[K]: V}?)
 		References = {};
 		Encodings = {};
 		EncodingsToRefs = {};
-		Top = 1;
+		Top = 2; -- ID 1 is reserved for the header
 		Statics = statics or {};
 	}
+
+	-- Write the header, ignoring statics
+	writeRef(1, {
+		[SYMBOL_DATA] = data;
+	}, state, true)
+
 	return encodeStringArray(state.Encodings)
 end
 
@@ -275,7 +282,12 @@ function Refcoder.decode<K, V>(data, statics: {[K]: V}?, readStart: number?)
 		Decodings = {};
 		Statics = invertTable(statics or {});
 	}
-	return decodeByRefId(1, state)
+
+	-- Decode header
+	local header = decodeByRefId(1, state)
+
+	-- Return the decoded data
+	return header[SYMBOL_DATA]
 end
 
 return Refcoder
