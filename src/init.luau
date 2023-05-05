@@ -125,7 +125,7 @@ function encode(value: any, state: EncodeState, isStatic: boolean?)
 			table.insert(values, getRefId(subValue, state))
 		end
 
-		-- If there is no state, it's the top-most table, so we manually insert ref ID 1
+		-- Encode the keys/values
 		return encodeRefTable(indices, values), typeIndex
 	end
 	return nil
