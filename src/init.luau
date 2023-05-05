@@ -54,11 +54,13 @@ local function decodeRefTable(data: string, readStart: number?)
 	return indices, values, pointer
 end
 
-local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static" }
+local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static", "copy_of" }
+local TYPE_COPY_OF = assert(table.find(VALID_TYPES, "copy_of"))
 
 type EncodeState = {
 	References: {[any]: number};
 	Encodings: {[number]: any};
+	EncodingsToRefs: {[string]: number};
 	Top: number;
 	Statics: {[any]: any};
 }
@@ -86,7 +88,21 @@ local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
 
 		-- Insert the encoding & ref ID
 		state.References[value] = refId
-		state.Encodings[refId] = encodeValue(encode(value, state, isStatic))
+
+		-- Encode the value & pack it
+		local encoded, typeIndex = encode(value, state, isStatic)
+		local packed = encodeValue(encoded, typeIndex)
+
+		-- Look for a ref with duplicate data
+		local encodingId = state.EncodingsToRefs[packed]
+		if encodingId then
+			-- Replace with a copy_of for the encoded data
+			packed = encodeValue(encodeRefId(encodingId), TYPE_COPY_OF)
+		else
+			-- Store the ref ID of this data
+			state.EncodingsToRefs[packed] = refId
+		end
+		state.Encodings[refId] = packed
 	end
 	return refId
 end
@@ -166,6 +182,12 @@ local function decode(refId: number, encoded: string, state: DecodeState)
 			decoded[index] = value
 		end
 		return decoded
+	elseif valueType == "copy_of" then
+		local encodingId = decodeRefId(value)
+		if not encodingId then return nil end
+
+		-- Grab the data stored for the target ref directly, and decode it
+		return decode(refId, state.Encodings[encodingId], state)
 	end
 	return nil
 end
@@ -202,6 +224,7 @@ function Refcoder.encode<K, V>(data, statics: {[K]: V}?)
 	local state = {
 		References = {};
 		Encodings = {};
+		EncodingsToRefs = {};
 		Top = 1;
 		Statics = statics or {};
 	}
