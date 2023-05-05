@@ -115,9 +115,38 @@ local function storeDataUnique(state: EncodeState, refId: number, encoded: strin
 	state.Encodings[refId] = encoded
 end
 
+-- Clones while ignoring __metatable non-intrusively, additionally returning the metatable if succeessful
+local function clone_safe(tab)
+	local success, clone = pcall(table.clone, tab)
+	return if success then clone else nil, if success then getmetatable(clone) else nil
+end
+
+-- Gets or creates metadata in the given table
+local function getMetadata(value)
+	local metadata = value[SYMBOL_DATA]
+	if not metadata then
+		metadata = {}
+		value[SYMBOL_DATA] = metadata
+	end
+	return value
+end
+
 local function writeRef(refId: number, value: any, state: EncodeState, isStatic: boolean?)
 	-- Insert the encoding & ref ID
 	state.References[value] = refId
+
+	-- Look for an unlocked metatable
+	if type(value) == "table" then
+		local clone, metatable = clone_safe(value)
+		if metatable then
+			-- Write the metatable into the metadata
+			local metadata = getMetadata(clone)
+			metadata.metatable = metatable
+
+			-- Replace the value with the clone
+			value = clone
+		end
+	end
 
 	-- Store packed data for the ref ID
 	storeDataUnique(state, refId, encodeValue(encode(value, state, isStatic)))
@@ -216,6 +245,15 @@ local function decode(refId: number, encoded: string, state: DecodeState)
 
 			if index == nil or value == nil then continue end
 
+			-- Special table metadata
+			if refId ~= 1 and index == SYMBOL_DATA then
+				-- Load the stored metatable
+				local metatable = value.metatable
+				if metatable then
+					setmetatable(decoded, metatable)
+				end
+				continue
+			end
 			decoded[index] = value
 		end
 		return decoded
