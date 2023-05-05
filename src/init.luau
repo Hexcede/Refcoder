@@ -69,8 +69,7 @@ type DecodeState = {
 }
 
 local encode
-local function encodeValue(value: any, state: EncodeState, isStatic: boolean?)
-	local encoded, typeIndex = encode(value, state, isStatic)
+local function encodeValue(encoded: string, typeIndex: number)
 	if not typeIndex or not encoded then return end
 	return `{string.pack("<B", typeIndex)}{encoded}`
 end
@@ -87,7 +86,7 @@ local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
 
 		-- Insert the encoding & ref ID
 		state.References[value] = refId
-		state.Encodings[refId] = encodeValue(value, state, isStatic)
+		state.Encodings[refId] = encodeValue(encode(value, state, isStatic))
 	end
 	return refId
 end
@@ -210,7 +209,7 @@ function Refcoder.encode<K, V>(data, statics: {[K]: V}?)
 	-- Reserve a refId for the data
 	local refId = getRefId(data, state)
 	if refId == 0 then
-		state.Encodings[state.Top] = encodeValue(0/0, state, true)
+		state.Encodings[state.Top] = encodeValue(encode(0/0, state, true))
 	end
 	return encodeStringArray(state.Encodings)
 end
