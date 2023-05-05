@@ -56,8 +56,17 @@ end
 
 local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static" }
 
-type EncodeState = {References: {[any]: number}, Encodings: {[number]: any}, Top: number; Statics: {[any]: any}}
-type DecodeState = {Decodings: {[number]: any}, Encodings: {[number]: any}, Statics: {[any]: any}}
+type EncodeState = {
+	References: {[any]: number};
+	Encodings: {[number]: any};
+	Top: number;
+	Statics: {[any]: any};
+}
+type DecodeState = {
+	Decodings: {[number]: any};
+	Encodings: {[number]: any};
+	Statics: {[any]: any};
+}
 
 local encode
 local function encodeValue(value: any, state: EncodeState, isStatic: boolean?)
@@ -105,16 +114,16 @@ function encode(value: any, state: EncodeState, isStatic: boolean?)
 	elseif type(value) == "table" then
 		-- Count all entries
 		local size = 0
-		for index, value in pairs(value) do
+		for _index, _value in pairs(value) do
 			size += 1
 		end
 		
 		-- Collect all index/value refs into an indices/values list
 		local indices = table.create(size)
 		local values = table.create(size)
-		for index, value in pairs(value) do
-			table.insert(indices, getRefId(index, state))
-			table.insert(values, getRefId(value, state))
+		for subIndex, subValue in pairs(value) do
+			table.insert(indices, getRefId(subIndex, state))
+			table.insert(values, getRefId(subValue, state))
 		end
 
 		-- If there is no state, it's the top-most table, so we manually insert ref ID 1
@@ -201,7 +210,7 @@ function Refcoder.encode<K, V>(data, statics: {[K]: V}?)
 	-- Reserve a refId for the data
 	local refId = getRefId(data, state)
 	if refId == 0 then
-		state.Encodings[1] = encodeValue(0/0, state, true)
+		state.Encodings[state.Top] = encodeValue(0/0, state, true)
 	end
 	return encodeStringArray(state.Encodings)
 end
