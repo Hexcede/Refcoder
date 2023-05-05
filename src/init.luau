@@ -54,8 +54,22 @@ local function decodeRefTable(data: string, readStart: number?)
 	return indices, values, pointer
 end
 
-local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static", "copy_of" }
+local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static", "copy_of", "symbol" }
+local TYPE_STATIC = assert(table.find(VALID_TYPES, "static"))
 local TYPE_COPY_OF = assert(table.find(VALID_TYPES, "copy_of"))
+local TYPE_SYMBOL = assert(table.find(VALID_TYPES, "symbol"))
+
+-- Symbols
+local SYMBOLS = {}
+local function Symbol(identifier: any)
+	local symbol = SYMBOLS[identifier]
+	if not symbol then
+		symbol = newproxy()
+		SYMBOLS[identifier] = symbol
+		SYMBOLS[symbol] = identifier
+	end
+	return symbol
+end
 
 local NAN_REF_ID = 0
 type EncodeState = {
@@ -120,15 +134,15 @@ local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
 end
 
 function encode(value: any, state: EncodeState, isStatic: boolean?)
-	local static = if not isStatic then state.Statics[value] else nil
-	if static ~= nil then
-		return encodeRefId(getRefId(static, state, true)), table.find(VALID_TYPES, "static")
-	end
-
 	local typeIndex = table.find(VALID_TYPES, typeof(value))
 	if not typeIndex then return end
 	
-	if type(value) == "string" then
+	local statics = state.Statics
+	if isStatic and statics[value] ~= nil then
+		return encodeRefId(getRefId(statics[value], state, true)), TYPE_STATIC
+	elseif type(value) == "userdata" and SYMBOLS[value] then
+		return encodeRefId(getRefId(SYMBOLS[value], state, true)), TYPE_SYMBOL
+	elseif type(value) == "string" then
 		return value, typeIndex
 	elseif type(value) == "number" then
 		return string.pack("<n", value), typeIndex
@@ -200,6 +214,9 @@ local function decode(refId: number, encoded: string, state: DecodeState)
 
 		-- Grab the data stored for the target ref directly, and decode it
 		return decode(refId, state.Encodings[encodingId], state)
+	elseif valueType == "symbol" then
+		local symbol = SYMBOLS[value]
+		return symbol
 	end
 	return nil
 end
