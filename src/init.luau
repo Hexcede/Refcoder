@@ -130,7 +130,7 @@ local function getMetadata(value)
 		metadata = {}
 		value[SYMBOL_DATA] = metadata
 	end
-	return value
+	return metadata
 end
 
 local function writeRef(refId: number, value: any, state: EncodeState, isStatic: boolean?)
