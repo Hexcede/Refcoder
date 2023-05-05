@@ -138,7 +138,7 @@ local function writeRef(refId: number, value: any, state: EncodeState, isStatic:
 	state.References[value] = refId
 
 	-- Look for an unlocked metatable
-	if type(value) == "table" then
+	if refId ~= 1 and type(value) == "table" then
 		local clone, metatable = clone_safe(value)
 		if metatable then
 			-- Write the metatable into the metadata
