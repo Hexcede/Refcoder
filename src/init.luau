@@ -29,7 +29,7 @@ local function decodeRefArray(data: string, readStart: number?)
 end
 
 local function encodeStringArray(strings: {string})
-	return string.pack(`<I4{string.rep(`s8`, #strings)}`, #strings, table.unpack(strings))
+	return string.pack(`<I4{string.rep("s8", #strings)}`, #strings, table.unpack(strings))
 end
 local function decodeStringArray(data: string, readStart: number?)
 	local length, pointer = string.unpack("<I4", data, readStart)
@@ -37,7 +37,7 @@ local function decodeStringArray(data: string, readStart: number?)
 	local refs = table.create(length)
 	local value
 	for i=1, length do
-		value, pointer = string.unpack(`s8`, data, pointer)
+		value, pointer = string.unpack("s8", data, pointer)
 		table.insert(refs, value)
 	end
 	return refs, pointer
@@ -54,8 +54,28 @@ local function decodeRefTable(data: string, readStart: number?)
 	return indices, values, pointer
 end
 
+local RAD_90 = math.rad(90)
+local RAD_180 = math.rad(180)
+
+-- https://dom.rojo.space/binary.html#cframe
+local CFRAME_SPECIAL_CASES = {
+	CFrame.Angles(0, 0, 0);			CFrame.Angles(0, RAD_180, 0);
+	CFrame.Angles(RAD_90, 0, 0);		CFrame.Angles(-RAD_90, -RAD_180, 0);
+	CFrame.Angles(0, RAD_180, RAD_180);	CFrame.Angles(0, 0, RAD_180);
+	CFrame.Angles(-RAD_90, 0, 0);		CFrame.Angles(RAD_90, RAD_180, 0);
+	CFrame.Angles(0, RAD_180, RAD_90);	CFrame.Angles(0, 0, -RAD_90);
+	CFrame.Angles(0, RAD_90, RAD_90);	CFrame.Angles(0, -RAD_90, -RAD_90);
+	CFrame.Angles(0, 0, RAD_90);		CFrame.Angles(0, -RAD_180, -RAD_90);
+	CFrame.Angles(0, -RAD_90, RAD_90);	CFrame.Angles(0, RAD_90, -RAD_90);
+	CFrame.Angles(-RAD_90, -RAD_90, 0);	CFrame.Angles(RAD_90, RAD_90, 0);
+	CFrame.Angles(0, -RAD_90, 0);		CFrame.Angles(0, RAD_90, 0);
+	CFrame.Angles(RAD_90, -RAD_90, 0);	CFrame.Angles(-RAD_90, RAD_90, 0);
+	CFrame.Angles(0, RAD_90, RAD_180);	CFrame.Angles(0, -RAD_90, RAD_180);
+}
+
 local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static", "copy_of" }
 local TYPE_COPY_OF = assert(table.find(VALID_TYPES, "copy_of"))
+local TYPE_COUNT = #VALID_TYPES
 
 type EncodeState = {
 	References: {[any]: number};
@@ -79,31 +99,32 @@ end
 local function getRefId(value: any, state: EncodeState, isStatic: boolean?)
 	if value ~= value then return 0 end
 	if value == nil then return nil end
-
+	
 	local refId = state.References[value]
-	if not refId then
-		-- Select the next reference ID
-		refId = state.Top
-		state.Top += 1
-
-		-- Insert the encoding & ref ID
-		state.References[value] = refId
-
-		-- Encode the value & pack it
-		local encoded, typeIndex = encode(value, state, isStatic)
-		local packed = encodeValue(encoded, typeIndex)
-
-		-- Look for a ref with duplicate data
-		local encodingId = state.EncodingsToRefs[packed]
-		if encodingId then
-			-- Replace with a copy_of for the encoded data
-			packed = encodeValue(encodeRefId(encodingId), TYPE_COPY_OF)
-		else
-			-- Store the ref ID of this data
-			state.EncodingsToRefs[packed] = refId
-		end
-		state.Encodings[refId] = packed
+	if refId then return refId end
+	
+	-- Select the next reference ID
+	refId = state.Top
+	state.Top += 1
+	
+	-- Insert the encoding & ref ID
+	state.References[value] = refId
+	
+	-- Encode the value & pack it
+	local encoded, typeIndex = encode(value, state, isStatic)
+	local packed = encodeValue(encoded, typeIndex)
+	
+	-- Look for a ref with duplicate data
+	local encodingId = state.EncodingsToRefs[packed]
+	if encodingId then
+		-- Replace with a copy_of for the encoded data
+		packed = encodeValue(encodeRefId(encodingId), TYPE_COPY_OF)
+	else
+		-- Store the ref ID of this data
+		state.EncodingsToRefs[packed] = refId
 	end
+	
+	state.Encodings[refId] = packed
 	return refId
 end
 
@@ -112,7 +133,7 @@ function encode(value: any, state: EncodeState, isStatic: boolean?)
 	if static ~= nil then
 		return encodeRefId(getRefId(static, state, true)), table.find(VALID_TYPES, "static")
 	end
-
+	
 	local typeIndex = table.find(VALID_TYPES, typeof(value))
 	if not typeIndex then return end
 	
@@ -125,7 +146,13 @@ function encode(value: any, state: EncodeState, isStatic: boolean?)
 	elseif typeof(value) == "Vector3" then
 		return string.pack("<nnn", value.X, value.Y, value.Z), typeIndex
 	elseif typeof(value) == "CFrame" then
-		return string.pack(`<{string.rep("nnn", 4)}`, value:GetComponents()), typeIndex
+		local caseId = table.find(CFRAME_SPECIAL_CASES, value.Rotation)
+		if caseId == nil then
+			return string.pack(`<{string.rep("nnn", 4)}`, value:GetComponents()), typeIndex
+		else
+			local cframePos = value.Position
+			return string.pack("<nnn", cframePos.X, cframePos.Y, cframePos.Z), caseId + TYPE_COUNT
+		end
 	elseif type(value) == "table" then
 		-- Count all entries
 		local size = 0
@@ -136,11 +163,12 @@ function encode(value: any, state: EncodeState, isStatic: boolean?)
 		-- Collect all index/value refs into an indices/values list
 		local indices = table.create(size)
 		local values = table.create(size)
+		
 		for subIndex, subValue in pairs(value) do
 			table.insert(indices, getRefId(subIndex, state))
 			table.insert(values, getRefId(subValue, state))
 		end
-
+		
 		-- Encode the keys/values
 		return encodeRefTable(indices, values), typeIndex
 	end
@@ -150,9 +178,17 @@ end
 local decodeByRefId
 local function decode(refId: number, encoded: string, state: DecodeState)
 	local valueTypeId, pointer = string.unpack("<B", encoded)
+	
+	-- CFrame special cases.
+	local cframeCase = CFRAME_SPECIAL_CASES[valueTypeId - TYPE_COUNT]
+	if cframeCase then
+		local x, y, z = string.unpack("<nnn", encoded, pointer)
+		return CFrame.new(x, y, z) * cframeCase
+	end
+	
 	local valueType = VALID_TYPES[valueTypeId]
 	if not valueType then return nil end
-
+	
 	local value = string.sub(encoded, pointer)
 	if valueType == "static" then
 		return state.Statics[decodeByRefId(decodeRefId(value), state)]
@@ -165,13 +201,14 @@ local function decode(refId: number, encoded: string, state: DecodeState)
 	elseif valueType == "Vector3" then
 		return Vector3.new(string.unpack("<nnn", value))
 	elseif valueType == "CFrame" then
-		return CFrame.new(string.unpack(`<{string.rep("nnn", 4)}`, value))
+		local x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22 = string.unpack(`<{string.rep("nnn", 4)}`, value)
+		return CFrame.new(x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22)
 	elseif valueType == "table" then
 		local decoded = {}
 		state.Decodings[refId] = decoded
 		
 		local indices, values = decodeRefTable(value)
-
+		
 		for i, indexRefId in ipairs(indices) do
 			local valueRefId = values[i]
 			local index = decodeByRefId(indexRefId, state)
@@ -207,7 +244,7 @@ function decodeByRefId(refId: number, state: DecodeState)
 	-- Decode the encoded value
 	decoded = decode(refId, encoded, state)
 	state.Decodings[refId] = decoded
-
+	
 	return decoded
 end
 
