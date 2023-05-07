@@ -75,7 +75,6 @@ local CFRAME_SPECIAL_CASES = {
 
 local VALID_TYPES = { "string", "number", "boolean", "table", "Vector3", "CFrame", "static", "copy_of" }
 local TYPE_COPY_OF = assert(table.find(VALID_TYPES, "copy_of"))
-local TYPE_COUNT = #VALID_TYPES
 
 type EncodeState = {
 	References: {[any]: number};
@@ -147,12 +146,8 @@ function encode(value: any, state: EncodeState, isStatic: boolean?)
 		return string.pack("<nnn", value.X, value.Y, value.Z), typeIndex
 	elseif typeof(value) == "CFrame" then
 		local caseId = table.find(CFRAME_SPECIAL_CASES, value.Rotation)
-		if caseId == nil then
-			return string.pack(`<{string.rep("nnn", 4)}`, value:GetComponents()), typeIndex
-		else
-			local cframePos = value.Position
-			return string.pack("<nnn", cframePos.X, cframePos.Y, cframePos.Z), caseId + TYPE_COUNT
-		end
+		local packFormat = string.rep("nnn", if caseId == nil then 4 else 1)
+		return string.pack(`<B<{packFormat}`, caseId or 0, value:GetComponents()), typeIndex
 	elseif type(value) == "table" then
 		-- Count all entries
 		local size = 0
@@ -179,13 +174,6 @@ local decodeByRefId
 local function decode(refId: number, encoded: string, state: DecodeState)
 	local valueTypeId, pointer = string.unpack("<B", encoded)
 	
-	-- CFrame special cases.
-	local cframeCase = CFRAME_SPECIAL_CASES[valueTypeId - TYPE_COUNT]
-	if cframeCase then
-		local x, y, z = string.unpack("<nnn", encoded, pointer)
-		return CFrame.new(x, y, z) * cframeCase
-	end
-	
 	local valueType = VALID_TYPES[valueTypeId]
 	if not valueType then return nil end
 	
@@ -201,8 +189,14 @@ local function decode(refId: number, encoded: string, state: DecodeState)
 	elseif valueType == "Vector3" then
 		return Vector3.new(string.unpack("<nnn", value))
 	elseif valueType == "CFrame" then
-		local x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22 = string.unpack(`<{string.rep("nnn", 4)}`, value)
-		return CFrame.new(x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22)
+		local cframeCase, pointer = string.unpack("<B", value)
+		if cframeCase ~= 0 then
+			local x, y, z = string.unpack("<nnn", value, pointer)
+			return CFrame.new(x, y, z) * CFRAME_SPECIAL_CASES[cframeCase]
+		else
+			local x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22 = string.unpack(`<{string.rep("nnn", 4)}`, value, pointer)
+			return CFrame.new(x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22)
+		end
 	elseif valueType == "table" then
 		local decoded = {}
 		state.Decodings[refId] = decoded
