@@ -4,6 +4,53 @@ local function minByteSize(maxInt: number)
 	return math.max(1, math.ceil(math.log(maxInt + 1, 256)))
 end
 
+local UNPACK_STEP_SIZE = 1000 -- How many array items can be unpacked at once
+local function getMaxValue(values: {number})
+	local maxValue = 0
+	local count = #values
+	for i=0, math.ceil(count / UNPACK_STEP_SIZE) - 1 do
+		local from = i * UNPACK_STEP_SIZE + 1
+		local to = math.min(from + UNPACK_STEP_SIZE, count)
+		maxValue = math.max(maxValue, table.unpack(values, from, to))
+	end
+	return maxValue
+end
+
+local function packArrayOf<T>(array: {T}, itemFormat: string)
+	itemFormat = `<{itemFormat}`
+
+	local arraySize = #array
+	local sectionCount = math.ceil(arraySize / UNPACK_STEP_SIZE)
+
+	local sections = table.create(sectionCount)
+	for i=0, sectionCount - 1 do
+		local from = i * UNPACK_STEP_SIZE + 1
+		local to = math.min(from + UNPACK_STEP_SIZE, arraySize)
+		local size = to - from + 1
+		table.insert(sections, string.pack(string.rep(itemFormat, size), table.unpack(array, from, to)))
+	end
+	return table.concat(sections)
+end
+
+local function unpackArrayOf<T>(data: string, arraySize: number, itemFormat: string, pointer: number?)
+	itemFormat = `<{itemFormat}`
+
+	local sectionCount = math.ceil(arraySize / UNPACK_STEP_SIZE)
+
+	local output = table.create(sectionCount)
+	for i=0, sectionCount - 1 do
+		local from = i * UNPACK_STEP_SIZE + 1
+		local to = math.min(from + UNPACK_STEP_SIZE, arraySize)
+		local size = to - from + 1
+
+		local results = table.pack(string.unpack(string.rep(itemFormat, size), data, pointer))
+		pointer = table.remove(results, results.n)
+
+		table.move(results, 1, results.n - 1, from, output)
+	end
+	return output, pointer
+end
+
 local function encodeRefId(refId: number)
 	local refSize = minByteSize(math.max(0, refId))
 	return string.pack(`<BI{refSize}`, refSize, refId)
@@ -12,35 +59,22 @@ local function decodeRefId(data: string)
 	local refSize, pointer = string.unpack("<B", data)
 	return string.unpack(`I{refSize}`, data, pointer)
 end
+
 local function encodeRefArray(refs: {number})
-	local refSize = minByteSize(math.max(0, table.unpack(refs)))
-	return string.pack(`<I4B{string.rep(`I{refSize}`, #refs)}`, #refs, refSize, table.unpack(refs))
+	local refSize = minByteSize(getMaxValue(refs))
+	return `{string.pack("<I4B", #refs, refSize)}{packArrayOf(refs, `I{refSize}`)}`
 end
 local function decodeRefArray(data: string, readStart: number?)
 	local length, refSize, pointer = string.unpack("<I4B", data, readStart)
-
-	local refs = table.create(length)
-	local refId
-	for i=1, length do
-		refId, pointer = string.unpack(`I{refSize}`, data, pointer)
-		table.insert(refs, refId)
-	end
-	return refs, pointer
+	return unpackArrayOf(data, length, `I{refSize}`, pointer)
 end
 
 local function encodeStringArray(strings: {string})
-	return string.pack(`<I4{string.rep(`s8`, #strings)}`, #strings, table.unpack(strings))
+	return `{string.pack("<I4", #strings)}{packArrayOf(strings, "s8")}`
 end
 local function decodeStringArray(data: string, readStart: number?)
 	local length, pointer = string.unpack("<I4", data, readStart)
-
-	local refs = table.create(length)
-	local value
-	for i=1, length do
-		value, pointer = string.unpack(`s8`, data, pointer)
-		table.insert(refs, value)
-	end
-	return refs, pointer
+	return unpackArrayOf(data, length, "s8", pointer)
 end
 
 local function encodeRefTable(indices: {number}, values: {number})
