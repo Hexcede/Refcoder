@@ -124,8 +124,7 @@ type DecodeState = {
 
 local encode
 local function encodeValue(encoded: string, typeIndex: number)
-	if not typeIndex or not encoded then return end
-	return `{string.pack("<B", typeIndex)}{encoded}`
+	return `{string.pack("<B", typeIndex or 0)}{encoded or ""}`
 end
 
 -- Uses top & increments it by 1
