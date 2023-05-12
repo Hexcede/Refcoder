@@ -27,6 +27,7 @@ local function packArrayOf<T>(array: {T}, itemFormat: string)
 		local from = i * UNPACK_STEP_SIZE + 1
 		local to = math.min(from + UNPACK_STEP_SIZE, arraySize)
 		local size = to - from + 1
+
 		table.insert(sections, string.pack(string.rep(itemFormat, size), table.unpack(array, from, to)))
 	end
 	return table.concat(sections)
